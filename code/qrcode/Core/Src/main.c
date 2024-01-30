@@ -37,7 +37,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define I2C_ADDRESS 0x21
-#define FIRMWARE_VERSION 1
+#define FIRMWARE_VERSION 3
 #define APPLICATION_ADDRESS     ((uint32_t)0x08001000)
 /* USER CODE END PD */
 
@@ -60,6 +60,12 @@ uint8_t data_ready = 0;
 volatile uint8_t fm_version = FIRMWARE_VERSION;
 volatile uint8_t flag_jump_bootloader = 0;
 volatile uint32_t jump_bootloader_timeout = 0;
+volatile uint8_t trigger_mode = 0;
+volatile uint32_t i2c_stop_timeout_delay = 0;
+
+volatile uint8_t uart_mode_flag = 0;
+
+volatile uint8_t is_i2c_enable = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -199,6 +205,19 @@ void Slave_Complete_Callback(uint8_t *rx_data, uint16_t len)
 
   reg_address = (rx_data[0] | (rx_data[1] << 8));
   if (len > 2) {
+    if (!is_i2c_enable) {
+      MX_DMA_Init();
+      MX_USART1_UART_Init();
+      __HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);
+      HAL_UART_Receive_DMA(&huart1, buffer, BUF_SIZE);     
+      uart_tx_buffer[0] = 0x21;
+      uart_tx_buffer[1] = 0x61;
+      uart_tx_buffer[2] = 0x41;
+      uart_tx_buffer[3] = 0x05;
+      data_ready_step = 0;
+      HAL_UART_Transmit_DMA(&huart1, uart_tx_buffer, 4);    
+      is_i2c_enable = 1;
+    }    
     if (reg_address == 0)
     {
       if (rx_data[2]) {
@@ -258,8 +277,45 @@ void Slave_Complete_Callback(uint8_t *rx_data, uint16_t len)
         user_i2c_init();
       }
     } 
+    else if (reg_address == 0x0010)
+    {
+      if (rx_data[2] == 0)
+        data_ready = rx_data[2];
+    } 
+    else if (reg_address == 0x0030)
+    {
+      if (rx_data[2] == 0) {
+        trigger_mode = 0;
+        uart_tx_buffer[0] = 0x21;
+        uart_tx_buffer[1] = 0x61;
+        uart_tx_buffer[2] = 0x41;
+        uart_tx_buffer[3] = 0x05;
+        HAL_UART_Transmit_DMA(&huart1, uart_tx_buffer, 4);         
+      }
+      else {
+        trigger_mode = 1;
+        uart_tx_buffer[0] = 0x21;
+        uart_tx_buffer[1] = 0x61;
+        uart_tx_buffer[2] = 0x41;
+        uart_tx_buffer[3] = 0x00;
+        HAL_UART_Transmit_DMA(&huart1, uart_tx_buffer, 4);          
+      }
+    } 
   }
   else if (len == 2) {
+    if (!is_i2c_enable) {
+      MX_DMA_Init();
+      MX_USART1_UART_Init();
+      __HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);
+      HAL_UART_Receive_DMA(&huart1, buffer, BUF_SIZE);     
+      uart_tx_buffer[0] = 0x21;
+      uart_tx_buffer[1] = 0x61;
+      uart_tx_buffer[2] = 0x41;
+      uart_tx_buffer[3] = 0x05;
+      data_ready_step = 0;
+      HAL_UART_Transmit_DMA(&huart1, uart_tx_buffer, 4);    
+      is_i2c_enable = 1;
+    }    
     if (reg_address == 0x0010)
     {
       i2c1_set_send_data((uint8_t*)&data_ready, 1);
@@ -267,6 +323,11 @@ void Slave_Complete_Callback(uint8_t *rx_data, uint16_t len)
     else if (reg_address == 0x0020)
     {
       i2c1_set_send_data((uint8_t*)&decode_length, 2);
+    } 
+    else if (reg_address == 0x0040)
+    {
+      uint8_t button_status = (!!(GPIOB->IDR & LL_GPIO_PIN_1));
+      i2c1_set_send_data((uint8_t*)&button_status, 1);
     } 
     else if (reg_address == 0x00FE) 
     {
@@ -280,7 +341,11 @@ void Slave_Complete_Callback(uint8_t *rx_data, uint16_t len)
     {
       i2c1_set_send_data(buffer, decode_length < BUF_SIZE ? decode_length : BUF_SIZE);
       data_ready = 0;
-    } 
+    }
+    else if (reg_address == 0x0030)
+    {
+      i2c1_set_send_data((uint8_t *)&trigger_mode, 1);
+    }      
   }
  
 }
@@ -314,21 +379,55 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_DMA_Init();
+  // MX_DMA_Init();
   // MX_I2C1_Init();
-  MX_USART1_UART_Init();
+  // MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  __HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);
-  HAL_UART_Receive_DMA(&huart1, buffer, BUF_SIZE);   
+  // if(!(!!(GPIOB->IDR & LL_GPIO_PIN_1))) {
+  //   HAL_Delay(2000);
+  //   if(!(!!(GPIOB->IDR & LL_GPIO_PIN_1))) {
+  //     uart_mode_flag = 1;
+  //   }
+  // }
+  // if (!uart_mode_flag) {
+  //   MX_DMA_Init();
+  //   MX_USART1_UART_Init();
+  //   __HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);
+  //   HAL_UART_Receive_DMA(&huart1, buffer, BUF_SIZE);      
+  // }
   i2c_address_read_from_flash();
   user_i2c_init();    
   i2c1_it_enable();
+  // if (!uart_mode_flag) {
+  //   uart_tx_buffer[0] = 0x21;
+  //   uart_tx_buffer[1] = 0x61;
+  //   uart_tx_buffer[2] = 0x41;
+  //   uart_tx_buffer[3] = 0x05;
+  //   data_ready_step = 0;
+  //   HAL_UART_Transmit_DMA(&huart1, uart_tx_buffer, 4);     
+  // }  
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    i2c_timeout_counter = 0;
+    if (i2c_stop_timeout_flag) {
+      if (i2c_stop_timeout_delay < HAL_GetTick()) {
+        i2c_stop_timeout_counter++;
+        i2c_stop_timeout_delay = HAL_GetTick() + 10;
+      }
+    }
+    if (i2c_stop_timeout_counter > 50) {
+      LL_I2C_DeInit(I2C1);
+      LL_I2C_DisableAutoEndMode(I2C1);
+      LL_I2C_Disable(I2C1);
+      LL_I2C_DisableIT_ADDR(I2C1);     
+      user_i2c_init(); 
+      i2c1_it_enable();
+      HAL_Delay(500);
+    }     
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -354,7 +453,7 @@ void SystemClock_Config(void)
 
   }
   LL_RCC_HSI_SetCalibTrimming(16);
-  LL_RCC_SetAHBPrescaler(LL_RCC_SYSCLK_DIV_8);
+  LL_RCC_SetAHBPrescaler(LL_RCC_SYSCLK_DIV_1);
   LL_RCC_SetAPB1Prescaler(LL_RCC_APB1_DIV_1);
   LL_RCC_SetSysClkSource(LL_RCC_SYS_CLKSOURCE_HSI);
 
@@ -363,7 +462,7 @@ void SystemClock_Config(void)
   {
 
   }
-  LL_SetSystemCoreClock(1000000);
+  LL_SetSystemCoreClock(8000000);
 
    /* Update the time base */
   if (HAL_InitTick (TICK_INT_PRIORITY) != HAL_OK)

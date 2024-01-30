@@ -222,10 +222,29 @@ void Mycallback_handler(void)
     decode_length = 0;
     uart_dma_init_flag = 1;
   }
-  if (data_ready_step == 1) {
-    data_ready = 1;
-    data_ready_step = 0;
+
+  if (decode_length == 5 && 
+  buffer[0] == 0x33 && buffer[1] == 0x75 && buffer[2] == 0x02 && buffer[3] == 0x00 & buffer[4] == 0x00) {
+    decode_length = 0;
   }
+  if (decode_length == 5 && 
+  buffer[0] == 0x22 && buffer[1] == 0x61 && buffer[2] == 0x41) {
+    decode_length = 0;
+  }
+
+	if (decode_length != 0) {
+	  if (data_ready < 2)
+      data_ready += 1;  
+	}
+  // if (data_ready == 1) {
+  //   data_ready = -1;
+  // } else if (data_ready == 0) {
+  //   if (data_ready_step == 1) {
+  //     if (data_ready < 127)
+  //     data_ready += 1;
+  //     data_ready_step = 0;
+  //   }
+  // }
 }
 
 void Usart_Receive_Data(UART_HandleTypeDef *huart)

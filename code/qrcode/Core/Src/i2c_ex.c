@@ -13,8 +13,11 @@ __IO uint8_t tx_buffer[I2C_TX_BUFFER_LEN];
 __IO uint16_t ubReceiveIndex = 0;
 uint8_t* pSlaveTransmitBuffer = 0;
 volatile uint8_t i2c_addr = 0;
-volatile uint8_t tx_buffer_index = 0;
-volatile uint8_t tx_len = 0;
+volatile uint16_t tx_buffer_index = 0;
+volatile uint16_t tx_len = 0;
+volatile uint32_t i2c_timeout_counter = 0;
+volatile uint32_t i2c_stop_timeout_flag = 0;
+volatile uint32_t i2c_stop_timeout_counter = 0;
 
 void set_i2c_slave_address(uint8_t addr)
 {
@@ -58,8 +61,8 @@ void i2c1_it_disable(void)
 
 void Error_Callback(void)
 {
-	i2c1_it_enable();
-	LL_I2C_AcknowledgeNextData(I2C1, LL_I2C_NACK);
+	// i2c1_it_enable();
+	// LL_I2C_AcknowledgeNextData(I2C1, LL_I2C_NACK);
 }
 
 void i2c1_set_send_data(uint8_t *tx_ptr, uint16_t len) {
@@ -95,6 +98,16 @@ void Slave_Ready_To_Transmit_Callback(void)
 void I2C1_IRQHandler(void)
 {
   /* USER CODE BEGIN I2C1_IRQn 0 */
+  i2c_timeout_counter++;
+  if (i2c_timeout_counter > 1000) {
+    LL_I2C_DeInit(I2C1);
+    LL_I2C_DisableAutoEndMode(I2C1);
+    LL_I2C_Disable(I2C1);
+    LL_I2C_DisableIT_ADDR(I2C1);         
+    user_i2c_init();    
+    i2c1_it_enable();          
+    i2c_timeout_counter = 0;
+  }
   /* Check ADDR flag value in ISR register */
   if(LL_I2C_IsActiveFlag_ADDR(I2C1))
   {
@@ -115,6 +128,7 @@ void I2C1_IRQHandler(void)
 
         /* Enable Receive Interrupt */
         LL_I2C_EnableIT_RX(I2C1);
+        i2c_stop_timeout_flag = 1;
       }
       /* Verify the transfer direction, a read direction, Slave enters transmitter mode */
       else if(LL_I2C_GetTransferDirection(I2C1) == LL_I2C_DIRECTION_READ)
@@ -179,6 +193,8 @@ void I2C1_IRQHandler(void)
     Slave_Complete_Callback((uint8_t *)aReceiveBuffer, ubReceiveIndex);
     ubReceiveIndex = 0;
     i2c1_it_enable();
+    i2c_stop_timeout_flag = 0;
+    i2c_stop_timeout_counter = 0;
   }
   /* Check TXE flag value in ISR register */
   else if(!LL_I2C_IsActiveFlag_TXE(I2C1))

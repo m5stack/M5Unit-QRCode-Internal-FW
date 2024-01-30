@@ -70,7 +70,7 @@ extern uint8_t data_ready;
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
-
+void user_i2c_init(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
